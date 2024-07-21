@@ -1,76 +1,27 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { VscHistory } from "react-icons/vsc";
+
+import useHistory from "@/app/hooks/useHistory";
+
+import {
+  checkValidityOfPressedDigitKey,
+  checkValidityOfPressedOperatorKey,
+} from "@/app/utils/checkValidity";
+
+import resultRoundingDecisionMaking from "@/app/utils/resultRounding";
 
 const operators = ["+", "-", "*", "/"];
 
 const Calculator: React.FC = () => {
   const [typedExpression, setTypedExpression] = useState<string>("");
   const [result, setResult] = useState<number | null>(null);
-  const [history, setHistory] = useState<string[]>([]);
-
-  useEffect(() => {
-    const savedHistory = localStorage.getItem("calcHistory");
-    if (savedHistory) {
-      setHistory(JSON.parse(savedHistory));
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("calcHistory", JSON.stringify(history));
-  }, [history]);
-
-  const addToHistory = (expression: string, result: number) => {
-    const newHistory = [`${expression} = ${result}`, ...history];
-    setHistory(newHistory);
-  };
+  const { history, addToHistory } = useHistory();
+  const [showHistory, setShowHistory] = useState<boolean>(false);
 
   const formulaWrittenOnScreen = typedExpression;
   const finalResultWrittenOnScreen = result;
-
-  const checkValidityOfPressedDigitKey = (pressedKey: string) => {
-    if (operators.includes(typedExpression.slice(-1))) {
-      setTypedExpression((prev) => prev + " " + pressedKey); // adds a space in the expression before a digit if the previous pressed key was an operator.
-    } else {
-      setTypedExpression((prev) => prev + pressedKey); // else adds typed digit without the space
-    }
-  };
-
-  const checkValidityOfPressedOperatorKey = (pressedKey: string) => {
-    if (operators.includes(typedExpression.slice(-1)) && pressedKey !== "-") {
-      console.warn("operator key pressed multiple time in a row");
-      deleteKeyFeature();
-      checkValidityOfPressedOperatorKey(pressedKey);
-      // If user types multiple time an operator key, the key is updated with last operator EXCEPT if that operator is "-" (because of negative numbers)
-    } else {
-      setTypedExpression((prev) => prev + " " + pressedKey); // adds a space in the expression after an operator has been typed
-    }
-  };
-
-  const resultRoundingDecisionMaking = (numberOfDecimalDigits: number) => {
-    try {
-      const result = eval(typedExpression); // I shouldn't use eval() because of security concern. I didn't find a better way yet
-      const decimalStr = (result - Math.floor(result)).toString();
-      const decimalLength = decimalStr.length - 1;
-      const factor = Math.pow(10, numberOfDecimalDigits);
-      let roundedResult = Math.floor(result * factor) / factor;
-      //   if (decimalLength > numberOfDecimalDigits) {
-      //     setResult(roundedResult);
-      //   } else {
-      //     setResult(result);
-      //   }
-      if (decimalLength > numberOfDecimalDigits) {
-        setResult(roundedResult);
-        addToHistory(typedExpression, roundedResult);
-      } else {
-        setResult(result);
-        addToHistory(typedExpression, result);
-      }
-    } catch (error) {
-      console.error("Invalid expression", error);
-    }
-  };
 
   const deleteKeyFeature = () => {
     setTypedExpression((prev) => prev.slice(0, -1));
@@ -83,11 +34,20 @@ const Calculator: React.FC = () => {
 
   const handleButtonClick = (value: string) => {
     if (!isNaN(parseFloat(value)) || value === ".") {
-      checkValidityOfPressedDigitKey(value);
+      setTypedExpression((prev) => checkValidityOfPressedDigitKey(prev, value));
+      setShowHistory(false); // Hide history when a digit or decimal point is pressed
     } else if (operators.includes(value)) {
-      checkValidityOfPressedOperatorKey(value);
+      setTypedExpression((prev) =>
+        checkValidityOfPressedOperatorKey(prev, value, deleteKeyFeature)
+      );
+      setShowHistory(false); // Hide history when an operator is pressed
     } else if (value === "=") {
-      resultRoundingDecisionMaking(5);
+      const res = resultRoundingDecisionMaking(
+        typedExpression,
+        5,
+        addToHistory
+      );
+      setResult(res);
     } else if (value === "AC") {
       resetCalculator();
     } else if (value === "DEL") {
@@ -97,16 +57,37 @@ const Calculator: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center mt-12 p-4 bg-gray-900 rounded-sm">
-      <div className="w-full bg-gray-700 text-white font-semibold text-right text-3xl p-4 rounded-sm mb-4">
+      <div className="w-full bg-gray-900 text-white font-semibold text-right text-3xl p-4 rounded-sm mb-4">
         <div
           id="final_result"
-          className="text-white font-bold text-right text-4xl"
+          className={`text-white font-bold text-right text-4xl ${
+            showHistory ? "hidden" : "block"
+          }`}
         >
           {finalResultWrittenOnScreen !== null
             ? finalResultWrittenOnScreen
             : ""}
         </div>
-        <div id="displayed_pressed_keys">{formulaWrittenOnScreen || "0"}</div>
+        <div
+          id="displayed_pressed_keys"
+          className={`${showHistory ? "hidden" : "block"}`}
+        >
+          {formulaWrittenOnScreen || "0"}
+        </div>
+        <div className={`text-left ${showHistory ? "block" : "hidden"}`}>
+          {history.length === 0 && (
+            <div className="text-slate-300 font-thin text-left text-sm">
+              There`s no history.
+            </div>
+          )}
+          <ul>
+            {history.map((item, index) => (
+              <li key={index} className="text-sm">
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
       <div className="grid grid-cols-4 gap-2">
         {[
@@ -141,9 +122,10 @@ const Calculator: React.FC = () => {
             {key}
           </button>
         ))}
+
         <button
-          onClick={() => alert(history.join("\n"))}
-          className="w-20 h-20 bg-orange-500 text-white text-2xl font-bold p-2 rounded-full flex justify-center items-center"
+          onClick={() => setShowHistory(!showHistory)}
+          className="bg-orange-500 text-white text-2xl font-bold p-2 rounded-full flex justify-center items-center"
         >
           <VscHistory size={30} />
         </button>
